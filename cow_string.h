@@ -4,35 +4,16 @@
 #include <string>
 #include <stdexcept>
 #include <iostream>
+#include <utility>
 
-class StringData {
-public:
-    StringData(const char* data, size_t size)
-            : data_(data),
-              size_(size) {}
 
-    const char* data() const {
-        return data_;
-    }
-
-    size_t size() const {
-        return size_;
-    }
-
-    bool empty() const {
-        return size_ == 0;
-    }
-
-private:
-    const char* data_;
-    size_t size_;
-};
 
 class CowString {
 public:
+    CowString() {}
     CowString(const std::string& str)
             : str_(std::make_shared<std::string>(str)),
-              data_(str_.get()->data(), str_.get()->size()) {}
+              data_(str_->data(), str_->size()) {}
 
     CowString(const CowString& other)
             : str_(other.str_),
@@ -50,14 +31,14 @@ public:
         if (pos + len > data_.size()) {
             throw std::out_of_range("Out of range");
         }
-        return CowString(str_, StringData(data_.data() + pos, len));
+        return CowString(str_, std::string_view(data_.data() + pos, len));
     }
 
     CowString substr(size_t pos) const {
         if (pos > data_.size()) {
             throw std::out_of_range("Out of range");
         }
-        return CowString(str_, StringData(data_.data() + pos, data_.size() - pos));
+        return {str_, std::string_view(data_.data() + pos, data_.size() - pos)};
     }
 
     size_t size() const {
@@ -68,15 +49,43 @@ public:
         return data_.empty();
     }
 
+    template<class S>
+    bool starts_with(S s) const {
+        return data_.starts_with(s);
+    }
+
+    char at(size_t idx) const {
+        return data_.at(idx);
+    }
+
+    bool operator==(const CowString &right) const {
+        return data_ == right.data_;
+    }
+
+    auto operator<=>(const CowString &right) const  {
+        return data_ <=> right.data_;
+    }
+
+    size_t hash() const {
+        return std::hash<std::string_view>{}(data_);
+    }
+
+    const char *c_str() const {
+        return data_.data();
+    }
+    std::string get_copy() const {
+        return {data_.data(), data_.size()};
+    }
+
     friend std::ostream& operator<<(std::ostream& os, const CowString& str) {
         return os << std::string(str.data_.data(), str.data_.size());
     }
 
 private:
-    CowString(std::shared_ptr<std::string> str, StringData data)
-            : str_(str),
+    CowString(std::shared_ptr<std::string> str, std::string_view data)
+            : str_(std::move(str)),
               data_(data.data(), data.size()) {}
 
     std::shared_ptr<std::string> str_;
-    StringData data_;
+    std::string_view data_;
 };

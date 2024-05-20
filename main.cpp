@@ -81,9 +81,9 @@ void benchmark() {
             "U U U U U U U U U a b c d e f g h i j",
             "U U U U U U U U U U a b c d e f g h i j k",
             "U U U U U U U U U U U a b c d e f g h i j k l",
-            "U U U U U U U U U U U U a b c d e f g h i j k l m",
-            "U U U U U U U U U U U U U a b c d e f g h i j k l m n",
-            "U U U U U U U U U U U U U U a b c d e f g h i j k l m n o",
+//            "U U U U U U U U U U U U a b c d e f g h i j k l m",
+//            "U U U U U U U U U U U U U a b c d e f g h i j k l m n",
+//            "U U U U U U U U U U U U U U a b c d e f g h i j k l m n o",
     };
 
     std::vector<std::string> tests3 = {
@@ -107,6 +107,6 @@ void benchmark() {
 
 int main() {
     benchmark();
-//    all_tests();
+    all_tests();
     return 0;
 }

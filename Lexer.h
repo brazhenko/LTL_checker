@@ -1,25 +1,22 @@
 #pragma once
 
 
+#include <cstddef>
+#include "cow_string.h"
+
 struct Lexer {
     Lexer() = delete;
 
-    explicit Lexer(const char *data) : data_(data) {}
+    explicit Lexer(const CowString &string) : cow(string) {}
 
-    const char *data_;
+    CowString cow;
+    size_t pos_ = 0;
+    std::pair<char, size_t> get() {
+        auto res = cow.at(pos_);
+        auto pos = pos_;
 
-    bool end() const {
-        return *data_ == 0;
-    }
+        pos_++;
 
-    char get() {
-        auto ret = *data_;
-        data_++;
-
-        if (ret == ' ' || ret == '\n') {
-            return get();
-        }
-
-        return ret;
+        return {res, pos};
     }
 };

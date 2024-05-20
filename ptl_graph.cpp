@@ -3,6 +3,7 @@
 //
 
 #include <chrono>
+#include <cassert>
 #include "ptl_graph.h"
 
 inline SymType get_type(char c) {
@@ -20,7 +21,7 @@ inline SymType get_type(char c) {
 }
 
 inline std::string to_string(Lexer *lexer) {
-    auto c = lexer->get();
+    auto [c, _] = lexer->get();
     auto type = get_type(c);
 
     if (type == SymType::UnaryOperator) {
@@ -35,45 +36,56 @@ inline std::string to_string(Lexer *lexer) {
     }
 }
 
-inline std::string get_formula(Lexer *lexer) {
-    auto c = lexer->get();
+
+// <start, end>
+inline std::pair<size_t, size_t> get_formula(Lexer *lexer) {
+    auto [c, pos] = lexer->get();
     auto type = get_type(c);
 
     if (type == SymType::UnaryOperator) {
-        return c + get_formula(lexer);
+        auto tmp = get_formula(lexer);
+        assert(pos + 1 == tmp.first);
+
+        return {pos, tmp.second};
+
     } else if (type == SymType::BinaryOperator) {
         auto left = get_formula(lexer);
         auto right = get_formula(lexer);
+        assert(left.second == right.first);
+        assert(pos + 1 == left.first);
 
-        return c + left + right;
+        return {pos, right.second};
     } else {
-        return {c};
+        return {pos, pos + 1};
     }
 }
 
 
 inline std::string formula_to_str(const Formula &f) {
-    Lexer lexer(f.formula.c_str());
+    Lexer lexer(f.formula);
 
     auto result = get_formula(&lexer);
+    auto repr = f.formula.substr(result.first, result.second - result.first).get_copy();
 
     if (f.marked_) {
-        result += " * ";
+        repr += " * ";
     }
 
-    return result;
+    return repr;
 }
 
-inline std::pair<std::string, std::string> get_left_right_operands(const std::string &formula) {
-    Lexer lexer(formula.c_str() + 1);
+inline std::pair<CowString, CowString> get_left_right_operands(const CowString &formula) {
+    auto f = formula.substr(1);
+    Lexer lexer(f);
 
     auto left = get_formula(&lexer);
     auto right = get_formula(&lexer);
 
-    return {left, right};
+    return {f.substr(left.first, left.second - left.first),
+            f.substr(right.first, right.second - right.first)};
 }
 
-inline DecomposeResult decompose(const std::string &string) {
+inline DecomposeResult decompose(const CowString &string) {
     using Variant = DecomposeResult::Variant;
 
     if (string.starts_with("~~")) {
@@ -81,9 +93,9 @@ inline DecomposeResult decompose(const std::string &string) {
     }
 
     if (string.starts_with("~X")) {
-        std::string res = string;
+        std::string res = string.get_copy();
         std::swap(res[0], res[1]);
-        return {Variant::One, std::move(res)};
+        return {Variant::One, res};
     }
 
     if (string.starts_with("&")) {
@@ -93,25 +105,25 @@ inline DecomposeResult decompose(const std::string &string) {
 
     if (string.starts_with("~&")) {
         auto [left, right] = get_left_right_operands(string.substr(1));
-        return {Variant::TwoSeparate, "~" + left, "~" + right};
+        return {Variant::TwoSeparate, "~" + left.get_copy(), "~" + right.get_copy()};
     }
 
     if (string.starts_with("F")) {
-        return {Variant::TwoSeparate, string.substr(1), "X" + string};
+        return {Variant::TwoSeparate, string.substr(1), "X" + string.get_copy()};
     }
 
     if (string.starts_with("~F")) {
-        return {Variant::Two, "~" + string.substr(2), "~XF" + string.substr(2)};
+        return {Variant::Two, "~" + string.substr(2).get_copy(), "~XF" + string.substr(2).get_copy()};
     }
 
     if (string.starts_with("U")) {
         auto [left, right] = get_left_right_operands(string);
-        return {Variant::Ultimate, right, left, "XU" + left + right};
+        return {Variant::Ultimate, right, left, "XU" + left.get_copy() + right.get_copy()};
     }
 
     if (string.starts_with("~U")) {
         auto [left, right] = get_left_right_operands(string.substr(1));
-        return {Variant::Two, "~" + right, "&~" + left + "~XU" + left + right};
+        return {Variant::Two, "~" + right.get_copy(), "&~" + left.get_copy() + "~XU" + left.get_copy() + right.get_copy()};
     }
 
     std::terminate();
@@ -375,7 +387,7 @@ bool LTLGraphWolper::all_children_eliminated(PtlNode *node) {
 bool LTLGraphWolper::contain_prop_contraversion(PtlNode *node) {
     for (auto &f: node->formulae_set.get_ref()) {
         if (f.literal()) {
-            if (node->formulae_set.contains("~" + f.formula) != 0) {
+            if (node->formulae_set.contains("~" + f.formula.get_copy()) != 0) {
                 return true;
             }
         }
@@ -392,8 +404,8 @@ bool LTLGraphWolper::rule3(PtlNode *node) {
     }
 
     for (auto &f: node->formulae_set.get_ref()) {
-        if (f.formula[0] == 'F' || f.formula[0] == 'U') {
-            auto search = f.formula[0] == 'U' ? get_left_right_operands(f.formula).second : f.formula.substr(1);
+        if (f.formula.at(0) == 'F' || f.formula.at(0) == 'U') {
+            auto search = f.formula.at(0) == 'U' ? get_left_right_operands(f.formula).second : f.formula.substr(1);
 
             visited_eliminate_rule3_.clear();
             if (!(rule3_trav(node, search))) {
@@ -409,7 +421,7 @@ bool LTLGraphWolper::rule3(PtlNode *node) {
     return false;
 }
 
-bool LTLGraphWolper::rule3_trav(PtlNode *node, const std::string &search) {
+bool LTLGraphWolper::rule3_trav(PtlNode *node, const CowString &search) {
     if (!node) {
         return false;
     }

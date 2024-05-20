@@ -14,7 +14,7 @@
 #include <iostream>
 #include <algorithm>
 #include <unordered_set>
-
+#include "cow_string.h"
 // Доступные символы
 // a-z -- variables
 // F -- finally
@@ -25,7 +25,7 @@
 
 
 struct Formula {
-    std::string formula;
+    CowString formula;
     bool marked_ = false;
 
     bool operator==(const Formula &right) const {
@@ -42,9 +42,8 @@ struct Formula {
         }
 
         if (formula.size() == 2) {
-            return formula[0] == '~';
+            return formula.at(0) == '~';
         }
-
 
         return false;
     }
@@ -55,7 +54,7 @@ struct Formula {
         }
 
         if (formula.size() == 2) {
-            return formula[0] == '~';
+            return formula.at(0) == '~';
         }
 
         return false;
@@ -72,7 +71,7 @@ private:
     size_t hash_ = 0;
 public:
     static size_t get_formula_hash(const Formula &formula) {
-        auto tmp = std::hash<std::string>{}(formula.formula);
+        auto tmp = formula.formula.hash();
         if (formula.marked_) {
             tmp = ~tmp;
         }
@@ -131,7 +130,7 @@ public:
         return set.contains(formula);
     }
 
-    bool contains(const std::string &formula) {
+    bool contains(const CowString &formula) {
         return set.contains(Formula{.formula=formula, .marked_=true}) ||
                set.contains(Formula{.formula=formula, .marked_=false});
     }
@@ -155,7 +154,7 @@ struct PtlNode {
     bool visited = false;
     bool eliminated = false;
 
-    void add_formula(const std::string &formula, bool marked) {
+    void add_formula(const CowString &formula, bool marked) {
         Formula form = {formula, marked};
         if (!marked && !form.elementary()) {
             state = false;
@@ -182,7 +181,7 @@ struct DecomposeResult {
         Ultimate
     };
     Variant variant;
-    std::string left, right, ultimate;
+    CowString left, right, ultimate;
 };
 
 enum class SymType {
@@ -217,7 +216,7 @@ private:
 
     bool contain_prop_contraversion(PtlNode *node);
 
-    bool rule3_trav(PtlNode *node, const std::string &search);
+    bool rule3_trav(PtlNode *node, const CowString &search);
 
     bool rule3(PtlNode *node);
 
