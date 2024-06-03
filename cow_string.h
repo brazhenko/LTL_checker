@@ -73,8 +73,12 @@ public:
     const char *c_str() const {
         return data_.data();
     }
+
     std::string get_copy() const {
         return {data_.data(), data_.size()};
+    }
+    std::string_view get_view() const {
+        return data_;
     }
 
     friend std::ostream& operator<<(std::ostream& os, const CowString& str) {

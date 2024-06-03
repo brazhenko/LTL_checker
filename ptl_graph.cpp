@@ -5,20 +5,7 @@
 #include <chrono>
 #include <cassert>
 #include "ptl_graph.h"
-
-inline SymType get_type(char c) {
-    if (c == 'F' || c == '~' || c == 'X') { // Finally, Not, Next
-        return SymType::UnaryOperator;
-    }
-    if (c == '&' || c == 'U') {
-        return SymType::BinaryOperator;
-    }
-    if ('a' <= c and c <= 'z') {
-        return SymType::Var;
-    }
-
-    std::terminate();
-}
+#include "timer.h"
 
 inline std::string to_string(Lexer *lexer) {
     auto [c, _] = lexer->get();
@@ -30,7 +17,7 @@ inline std::string to_string(Lexer *lexer) {
         auto left = to_string(lexer);
         auto right = to_string(lexer);
 
-        return left + " " + c + " " + right;
+        return "(" + left + ") " + c + " (" + right + ")";
     } else {
         return {c};
     }
@@ -64,14 +51,13 @@ inline std::pair<size_t, size_t> get_formula(Lexer *lexer) {
 inline std::string formula_to_str(const Formula &f) {
     Lexer lexer(f.formula);
 
-    auto result = get_formula(&lexer);
-    auto repr = f.formula.substr(result.first, result.second - result.first).get_copy();
+    auto result = to_string(&lexer);
 
     if (f.marked_) {
-        repr += " * ";
+        result += " * ";
     }
 
-    return repr;
+    return result;
 }
 
 inline std::pair<CowString, CowString> get_left_right_operands(const CowString &formula) {
@@ -87,9 +73,22 @@ inline std::pair<CowString, CowString> get_left_right_operands(const CowString &
 
 inline DecomposeResult decompose(const CowString &string) {
     using Variant = DecomposeResult::Variant;
+    auto doubleneg = [] (const CowString &string) {
+        if (string.starts_with("~~")) {
+            return string.substr(2);
+        }
+
+        return string;
+    };
+
 
     if (string.starts_with("~~")) {
         return {Variant::One, string.substr(2)};
+    }
+
+    if (string.starts_with("|")) {
+        auto [left, right] = get_left_right_operands(string);
+        return {Variant::One, "~&~" + left.get_copy() + "~" + right.get_copy()};
     }
 
     if (string.starts_with("~X")) {
@@ -105,7 +104,7 @@ inline DecomposeResult decompose(const CowString &string) {
 
     if (string.starts_with("~&")) {
         auto [left, right] = get_left_right_operands(string.substr(1));
-        return {Variant::TwoSeparate, "~" + left.get_copy(), "~" + right.get_copy()};
+        return {Variant::TwoSeparate, doubleneg("~" + left.get_copy()), doubleneg("~" + right.get_copy())};
     }
 
     if (string.starts_with("F")) {
@@ -113,7 +112,7 @@ inline DecomposeResult decompose(const CowString &string) {
     }
 
     if (string.starts_with("~F")) {
-        return {Variant::Two, "~" + string.substr(2).get_copy(), "~XF" + string.substr(2).get_copy()};
+        return {Variant::Two, doubleneg("~" + string.substr(2).get_copy()), "X~F" + string.substr(2).get_copy()};
     }
 
     if (string.starts_with("U")) {
@@ -123,7 +122,8 @@ inline DecomposeResult decompose(const CowString &string) {
 
     if (string.starts_with("~U")) {
         auto [left, right] = get_left_right_operands(string.substr(1));
-        return {Variant::Two, "~" + right.get_copy(), "&~" + left.get_copy() + "~XU" + left.get_copy() + right.get_copy()};
+        return {Variant::Two, doubleneg("~" + right.get_copy()),
+                "&~" + left.get_copy() + "~XU" + left.get_copy() + right.get_copy()};
     }
 
     std::terminate();
@@ -138,6 +138,10 @@ LTLGraphWolper::LTLGraphWolper(const std::string &init_formula) {
     root_->add_formula(formula, false);
 
     set_to_ptr_[root_->formulae_set] = root_;
+}
+
+PtlNode *LTLGraphWolper::registrate(const FormulaeSet &set) {
+    return nullptr;
 }
 
 void LTLGraphWolper::build() {
@@ -177,8 +181,8 @@ void LTLGraphWolper::build() {
                 for (auto &el: copy.get_ref()) {
                     new_node->add_formula(el);
                 }
-
                 new_node->add_formula(res.left, false);
+
 
                 auto it = set_to_ptr_.find(new_node->formulae_set);
                 if (it != set_to_ptr_.end()) {
@@ -250,6 +254,7 @@ void LTLGraphWolper::build() {
                 for (auto &el: copy.get_ref()) {
                     new_node1->add_formula(el);
                 }
+
                 auto new_node2 = new PtlNode;
                 for (auto &el: copy.get_ref()) {
                     new_node2->add_formula(el);
@@ -316,27 +321,36 @@ void LTLGraphWolper::build() {
 }
 
 void LTLGraphWolper::eliminate() {
+    bool simple_contr = true;
+    int count = 0;
+
     while (true) {
         visited_eliminate_.clear();
 
         // eliminate
         any_eliminated = false;
-        traverse(root_);
+        traverse(root_, simple_contr);
+        simple_contr = false;
+
+        ++count;
 
         if (!any_eliminated) {
             break;
         }
     }
 
-    std::cout << "E3: " << rule3_deletions << std::endl;
-    std::cout << "E3 time: " << micros_per_rule3 << std::endl;
-
+    if (!sat()) {
+        std::cout << "NOT SAT" << std::endl;
+        std::cout << "E3: " << rule3_deletions << std::endl;
+        std::cout << "E3 time: " << micros_per_rule3 << std::endl;
+        std::cout << "Iters: " << count << std::endl;
+    }
 
 //    std::cout << "=== Traverse, state: " << root_->state << ", prestate: " << root_->prestate << ", hash: "
 //              << std::hex << root_->formulae_set.hash() << ", eliminated: " << root_->eliminated << std::endl;
 }
 
-void LTLGraphWolper::traverse(PtlNode *node) {
+void LTLGraphWolper::traverse(PtlNode *node, bool simple_contr) {
     if (!node) {
         return;
     }
@@ -351,27 +365,32 @@ void LTLGraphWolper::traverse(PtlNode *node) {
     visited_eliminate_.insert(node);
 
     // Elimination Rule 1
-    if (contain_prop_contraversion(node)) {
-        node->eliminated = true;
-        any_eliminated = true;
-        return;
+    if (simple_contr) {
+        if (contain_prop_contraversion(node)) {
+            node->eliminated = true;
+            any_eliminated = true;
+            return;
+        }
     }
+
         // Elimination Rule 2
     else if (all_children_eliminated(node)) {
         node->eliminated = true;
         any_eliminated = true;
         return;
     }
+
         // Elimination Rule 3
     else if (rule3(node)) {
         node->eliminated = true;
         any_eliminated = true;
+
         ++rule3_deletions;
         return;
     }
 
-    traverse(node->left);
-    traverse(node->right);
+    traverse(node->left, simple_contr);
+    traverse(node->right, simple_contr);
 }
 
 bool LTLGraphWolper::all_children_eliminated(PtlNode *node) {
@@ -408,7 +427,7 @@ bool LTLGraphWolper::rule3(PtlNode *node) {
             auto search = f.formula.at(0) == 'U' ? get_left_right_operands(f.formula).second : f.formula.substr(1);
 
             visited_eliminate_rule3_.clear();
-            if (!(rule3_trav(node, search))) {
+            if (!rule3_trav(node, search)) {
                 auto end = std::chrono::high_resolution_clock::now();
                 micros_per_rule3 += std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
                 return true;
@@ -418,6 +437,7 @@ bool LTLGraphWolper::rule3(PtlNode *node) {
 
     auto end = std::chrono::high_resolution_clock::now();
     micros_per_rule3 += std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+
     return false;
 }
 
@@ -442,3 +462,136 @@ bool LTLGraphWolper::rule3_trav(PtlNode *node, const CowString &search) {
 
     return rule3_trav(node->left, search) || rule3_trav(node->right, search);
 }
+
+LTLGraphWolper::~LTLGraphWolper() {
+    std::unordered_map<PtlNode *, int> node_to_count;
+    int max = 0, state = 0, prestate = 0;
+    std::cout << "SCC: " << scc_count() << std::endl;
+
+
+    for (auto &[_, node]: set_to_ptr_) {
+        state += node->state;
+        prestate += node->prestate;
+        if (node->left) {
+            node_to_count[node->left]++;
+            max = std::max(max, node_to_count[node->left]);
+        }
+        if (node->right) {
+            node_to_count[node->right]++;
+            max = std::max(max, node_to_count[node->right]);
+        }
+
+        delete node;
+    }
+
+    std::cout << "Max ref: " << max << ", state: " << state << ", prestate: " << prestate  << std::endl;
+}
+
+
+void dfs1(size_t v, std::vector<size_t> &used, std::vector<std::vector<size_t>> &g, std::vector<size_t> &order) {
+    used[v] = true;
+    for (size_t i = 0; i < g[v].size(); ++i)
+        if (!used[g[v][i]])
+            dfs1(g[v][i], used, g, order);
+    order.push_back(v);
+}
+
+void dfs2(size_t v, std::vector<size_t> &used, std::vector<std::vector<size_t>> &gr, std::vector<size_t> &component) {
+    used[v] = true;
+    component.push_back(v);
+    for (size_t i = 0; i < gr[v].size(); ++i)
+        if (!used[gr[v][i]]) {
+            dfs2(gr[v][i], used, gr, component);
+        }
+}
+
+size_t LTLGraphWolper::scc_count() const {
+    const auto n = set_to_ptr_.size();
+
+    std::vector<PtlNode *> nodes;
+    std::unordered_map<PtlNode *, size_t> node_to_idx;
+
+    std::vector<std::vector<size_t>> g(n), gr(n);
+
+    {
+        size_t i = 0;
+        for (const auto &[_, node]: set_to_ptr_) {
+            nodes.push_back(node);
+            node_to_idx[node] = i++;
+        }
+    }
+
+    for (size_t i = 0; i < n; ++i) {
+        if (nodes[i]->left) {
+            g[i].push_back(node_to_idx.at(nodes[i]->left));
+            gr[node_to_idx.at(nodes[i]->left)].push_back(i);
+        }
+        if (nodes[i]->right) {
+            g[i].push_back(node_to_idx.at(nodes[i]->right));
+            gr[node_to_idx.at(nodes[i]->right)].push_back(i);
+        }
+    }
+
+    std::vector<size_t> used, order, component;
+
+    used.assign(n, false);
+    for (size_t i = 0; i < n; ++i) {
+        if (!used[i]) {
+            dfs1(i, used, g, order);
+        }
+    }
+
+
+    used.assign(n, false);
+    size_t scc_count = 0;
+
+    for (size_t i = 0; i < n; ++i) {
+        size_t v = order[n - 1 - i];
+        if (!used[v]) {
+            dfs2(v, used, gr, component);
+            ++scc_count;
+            component.clear();
+        }
+    }
+
+
+    return scc_count;
+}
+
+#include <fstream>
+
+void LTLGraphWolper::to_file(const std::string& file) const {
+    std::ofstream ofs(file, std::ios::trunc);
+    if (!ofs.is_open()) {
+        std::cerr << "Error: Unable to open file " << file << std::endl;
+        return;
+    }
+
+    for (const auto &[_, node] : set_to_ptr_) {
+        ofs << "NODE" << std::endl;
+        ofs << std::hex << node << std::endl;
+
+        if (node->left) {
+            ofs << std::hex << node->left << " ";
+        }
+        if (node->right) {
+            ofs << std::hex << node->right;
+        }
+
+        ofs << std::endl;
+        ofs << int(node->state) << " " << int(node->prestate) << " " << int(node->eliminated) << std::endl;
+
+        auto decompose = node->formulae_set.find_non_elementary_non_marked();
+        if (decompose.has_value()) {
+            ofs << "D*: " << formula_to_str(decompose.value().first) << std::endl;
+        }
+
+        for (auto &f : node->formulae_set.get_ref()) {
+            ofs << formula_to_str(f) << std::endl;
+        }
+    }
+    ofs.close();
+}
+
+
+

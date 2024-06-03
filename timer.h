@@ -12,7 +12,7 @@ public:
         auto end = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration<double, std::milli>(end - start).count();
 
-        std::cout << "Time taken by " << name << ": " << duration << " ms" << std::endl;
+        std::cout << "> " << name << ": " << duration << " ms" << std::endl;
     }
 
 private:

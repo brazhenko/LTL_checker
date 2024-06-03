@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <unordered_set>
 #include "cow_string.h"
+
 // Доступные символы
 // a-z -- variables
 // F -- finally
@@ -65,6 +66,16 @@ inline bool operator<(const Formula &left, const Formula &right) {
     return std::tie(left.formula, left.marked_) < std::tie(right.formula, right.marked_);
 }
 
+
+namespace std {
+    template <>
+    struct hash<Formula> {
+        std::size_t operator()(const Formula& f) const {
+            return std::hash<std::string_view>{}(f.formula.get_view());
+        }
+    };
+}
+
 class FormulaeSet {
 private:
     std::set<Formula> set;
@@ -87,6 +98,7 @@ public:
             hash_ ^= tmp;
         }
     }
+
 
     std::optional<std::pair<Formula, FormulaeSet>> find_non_elementary_non_marked() {
         for (auto it = set.begin(); it != set.end(); ++it) {
@@ -146,6 +158,14 @@ namespace std {
 }
 
 struct PtlNode {
+    static int node_count;
+    PtlNode() {
+        ++node_count;
+    }
+    ~PtlNode() {
+        --node_count;
+    }
+
     FormulaeSet formulae_set;
     PtlNode *left = nullptr, *right = nullptr;
 
@@ -196,6 +216,8 @@ public:
 
     explicit LTLGraphWolper(const std::string &init_formula);
 
+    ~LTLGraphWolper();
+
     void build();
 
     void eliminate();
@@ -204,6 +226,9 @@ public:
         return !root_->eliminated;
     }
 
+    size_t scc_count() const;
+
+    void to_file(const std::string& file) const;
 private:
     std::unordered_set<PtlNode *> visited_eliminate_;
     std::unordered_set<PtlNode *> visited_eliminate_rule3_;
@@ -220,7 +245,9 @@ private:
 
     bool rule3(PtlNode *node);
 
-    void traverse(PtlNode *node);
+    void traverse(PtlNode *node, bool simple_contr);
+
+    PtlNode *registrate(const FormulaeSet &set);
 
     // stats
     uint64_t rule3_deletions = 0;
@@ -228,3 +255,16 @@ private:
 };
 
 
+inline SymType get_type(char c) {
+    if (c == 'F' || c == '~' || c == 'X') { // Finally, Not, Next
+        return SymType::UnaryOperator;
+    }
+    if (c == '&' || c == 'U' || c == '|') {
+        return SymType::BinaryOperator;
+    }
+    if ('a' <= c and c <= 'z') {
+        return SymType::Var;
+    }
+
+    std::terminate();
+}
